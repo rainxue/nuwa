@@ -1,0 +1,80 @@
+[
+    {
+        "nservice": "AccountService",
+        "base_url":"/p/iam/captcha",
+        "items": [
+            {
+                "function": "generateCaptcha",
+                "method": "GET"
+            },
+            {
+                "function": "verifyCaptcha",
+                "method": "POST",
+                "params": [
+                    {
+                        "fromway": "body",
+                        "code": "id"
+                    },
+                    {
+                        "fromway": "body",
+                        "code": "user_input"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "nservice": "AccountService",
+        "base_url":"/p/iam",
+        "items": [
+            {
+                "function": "reg",
+                "method": "POST",
+                "url": "/reg",
+                "params": [
+                    {
+                        "fromway": "body",
+                        "code": ""
+                    }
+                ]
+            },
+            {
+                "function": "login",
+                "method": "POST",
+                "url": "/login",
+                "params": [
+                    {
+                        "fromway": "body",
+                        "code": "identifier"
+                    },
+                    {
+                        "fromway": "body",
+                        "code": "password"
+                    }
+                ]
+            },
+            {
+                "function": "valid",
+                "method": "POST",
+                "url": "/valid",
+                "params": [
+                    {
+                        "fromway": "body",
+                        "code": "token"
+                    }
+                ]
+            }
+        ]
+    },
+    {
+        "nservice": "MenuService",
+        "base_url":"/m/iam/menus",
+        "items": [
+            {"standard_action": "add"},
+            {"standard_action": "update"},
+            {"standard_action": "remove"},
+            {"standard_action": "get"},
+            {"standard_action": "tree"}
+        ]
+    }
+]

@@ -1,0 +1,62 @@
+rds:
+  datasource:
+    default:
+      type: mysql
+      host: localhost
+      port: 3306
+      username: nuwa
+      password: wee.dfasfsdf
+      database: nuwa
+      charset: utf8mb4
+      connection_limit: 10
+    default1:
+      type: dm
+      host: localhost
+      port: 5555
+      username: DM_USER
+      password: DM_user.123
+      database: nproject
+      charset: utf8
+  datasource_alias:
+    dcm: default
+    org: default
+    iam: default
+mq:
+  default:
+    type: kafka
+    bootstrap_servers: node0.cl-dev-kfkc-public-share-b2oox.docker.sdp:10195,node1.cl-dev-kfkc-public-share-b2oox.docker.sdp:10195,node2.cl-dev-kfkc-public-share-b2oox.docker.sdp:10195
+    security_protocol: SASL_PLAINTEXT
+    sasl_mechanism: SCRAM-SHA-256
+    sasl_plain_username: dev_kafka_nproject
+    sasl_plain_password: hS5@FWhozJ
+nhosts:
+  - name: nhost1
+    url: https://nhost1.example.com
+    nservers:
+      - sys
+      - nserver2
+  - name: nhost2
+    url: https://nhost2.example.com
+    nservers:
+      - nserver3
+clusters:
+  nhosts: default,nhost2
+  default:
+    host: http://localhost:8080
+    nservers: all
+  nhost2:
+    host: http://localhost:8081
+    nservers: calculator
+
+cache:
+  mappings:
+    default: default
+    uc: default
+  default:
+    type: redis
+    options:
+      host: localhost
+      port: 6379
+      password: redis.xts.123
+      max: 1000
+      ttl: 5 * 60 * 1000

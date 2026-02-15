@@ -1,0 +1,240 @@
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { accessTokenService } from './access_token_service';
+
+/**
+ * JWT Token 验证中间件示例
+ * 展示如何在不同场景下使用不同的验证策略
+ */
+
+// 1. 公开API中间件 - 无状态验证（推荐默认使用）
+export async function authenticatePublicAPI(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const authHeader = request.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return reply.status(401).send({ error: 'Missing or invalid authorization header' });
+        }
+
+        const token = authHeader.substring(7);
+        
+        // 使用纯无状态验证 - 性能最优
+        const decoded = await accessTokenService.verifyPublicAPI(token);
+        if (!decoded) {
+            return reply.status(401).send({ error: 'Invalid or expired token' });
+        }
+
+        // 将用户信息添加到请求对象
+        request.user = { userId: decoded.payload.user_id };
+    } catch (error) {
+        return reply.status(401).send({ error: 'Token verification failed' });
+    }
+}
+
+// 2. 敏感操作中间件 - 黑名单检查
+export async function authenticateSensitiveAPI(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const authHeader = request.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return reply.status(401).send({ error: 'Missing or invalid authorization header' });
+        }
+
+        const token = authHeader.substring(7);
+        
+        // 使用黑名单检查验证 - 确保Token未被撤销
+        const decoded = await accessTokenService.verifySensitiveAPI(token);
+        if (!decoded) {
+            return reply.status(401).send({ error: 'Invalid, expired, or revoked token' });
+        }
+
+        request.user = { userId: decoded.payload.user_id };
+    } catch (error) {
+        return reply.status(401).send({ error: 'Token verification failed' });
+    }
+}
+
+// 3. 管理后台中间件 - 完全有状态验证
+export async function authenticateAdminAPI(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const authHeader = request.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return reply.status(401).send({ error: 'Missing or invalid authorization header' });
+        }
+
+        const token = authHeader.substring(7);
+        
+        // 使用完全有状态验证 - 最强安全控制
+        const decoded = await accessTokenService.verifyAdminAPI(token);
+        if (!decoded) {
+            return reply.status(401).send({ error: 'Invalid, expired, or unauthorized token' });
+        }
+
+        request.user = { userId: decoded.payload.user_id };
+    } catch (error) {
+        return reply.status(401).send({ error: 'Token verification failed' });
+    }
+}
+
+/**
+ * 路由示例：展示不同API如何使用不同的验证策略
+ */
+export async function registerAuthRoutes(app: FastifyInstance) {
+    
+    // 公开API路由 - 使用无状态验证
+    app.register(async function(fastify) {
+        fastify.addHook('preHandler', authenticatePublicAPI);
+        
+        // 获取用户基本信息 - 高频访问，使用无状态验证
+        fastify.get('/api/user/profile', async (request, reply) => {
+            return { 
+                message: 'User profile',
+                userId: request.user?.userId,
+                verification: 'stateless' 
+            };
+        });
+
+        // 获取文章列表 - 公开内容，性能优先
+        fastify.get('/api/articles', async (request, reply) => {
+            return { 
+                message: 'Articles list',
+                verification: 'stateless' 
+            };
+        });
+    });
+
+    // 敏感操作路由 - 使用黑名单验证
+    app.register(async function(fastify) {
+        fastify.addHook('preHandler', authenticateSensitiveAPI);
+        
+        // 修改密码 - 敏感操作，需要确保Token未被撤销
+        fastify.post('/api/user/change-password', async (request, reply) => {
+            return { 
+                message: 'Password changed',
+                userId: request.user?.userId,
+                verification: 'with-revocation-check' 
+            };
+        });
+
+        // 转账操作 - 金融操作，安全性优先
+        fastify.post('/api/transfer', async (request, reply) => {
+            return { 
+                message: 'Transfer initiated',
+                userId: request.user?.userId,
+                verification: 'with-revocation-check' 
+            };
+        });
+
+        // 删除账户 - 不可逆操作，需要最新状态验证
+        fastify.delete('/api/user/account', async (request, reply) => {
+            return { 
+                message: 'Account deletion initiated',
+                userId: request.user?.userId,
+                verification: 'with-revocation-check' 
+            };
+        });
+    });
+
+    // 管理后台路由 - 使用完全有状态验证
+    app.register(async function(fastify) {
+        fastify.addHook('preHandler', authenticateAdminAPI);
+        
+        // 用户管理 - 管理员操作，需要最严格的验证
+        fastify.get('/api/admin/users', async (request, reply) => {
+            return { 
+                message: 'Admin users list',
+                userId: request.user?.userId,
+                verification: 'fully-stateful' 
+            };
+        });
+
+        // 系统配置 - 关键系统操作
+        fastify.post('/api/admin/config', async (request, reply) => {
+            return { 
+                message: 'System config updated',
+                userId: request.user?.userId,
+                verification: 'fully-stateful' 
+            };
+        });
+    });
+
+    // 通用路由：登出操作
+    app.post('/api/auth/logout', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const authHeader = request.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return reply.status(401).send({ error: 'Missing authorization header' });
+            }
+
+            const token = authHeader.substring(7);
+            
+            // 撤销当前Token
+            const success = await accessTokenService.revokeToken(token);
+            
+            return { 
+                message: success ? 'Logged out successfully' : 'Logout failed',
+                revoked: success 
+            };
+        } catch (error) {
+            return reply.status(500).send({ error: 'Logout failed' });
+        }
+    });
+
+    // 工具路由：Token验证测试
+    app.get('/api/auth/verify-methods', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const authHeader = request.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return reply.status(401).send({ error: 'Missing authorization header' });
+            }
+
+            const token = authHeader.substring(7);
+            
+            // 测试三种验证方式
+            const stateless = await accessTokenService.verifyAccessTokenStateless(token);
+            const withRevocation = await accessTokenService.verifyAccessTokenWithRevocation(token);
+            const stateful = await accessTokenService.verifyAccessTokenStateful(token);
+            
+            return {
+                stateless: stateless ? 'valid' : 'invalid',
+                withRevocation: withRevocation ? 'valid' : 'invalid',
+                stateful: stateful ? 'valid' : 'invalid',
+                recommendations: {
+                    publicAPI: 'Use stateless verification',
+                    sensitiveAPI: 'Use revocation check',
+                    adminAPI: 'Use stateful verification'
+                }
+            };
+        } catch (error) {
+            return reply.status(500).send({ error: 'Verification test failed' });
+        }
+    });
+}
+
+/**
+ * 性能对比说明：
+ * 
+ * 1. 无状态验证 (stateless)：
+ *    - 性能：★★★★★
+ *    - 安全：★★★☆☆
+ *    - Redis查询：0次
+ *    - 适用：高频公开API
+ * 
+ * 2. 黑名单验证 (with-revocation)：
+ *    - 性能：★★★★☆
+ *    - 安全：★★★★☆
+ *    - Redis查询：1次（检查黑名单）
+ *    - 适用：敏感操作
+ * 
+ * 3. 完全有状态验证 (stateful)：
+ *    - 性能：★★★☆☆
+ *    - 安全：★★★★★
+ *    - Redis查询：1次（获取完整状态）
+ *    - 适用：管理后台
+ */
+
+// 扩展 FastifyRequest 类型
+declare module 'fastify' {
+    interface FastifyRequest {
+        user?: {
+            userId: string;
+        };
+    }
+}

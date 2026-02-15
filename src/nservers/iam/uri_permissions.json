@@ -1,0 +1,4 @@
+[
+     {"permission":100101, "method": "GET", "uri": "/api/permissions"}
+    ,{"permission":100102, "method": "POST", "uri": "/api/permissions"}
+]

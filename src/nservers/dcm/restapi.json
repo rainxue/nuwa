@@ -1,0 +1,50 @@
+[
+    {
+        "nservice": "LibTemplateService",
+        "base_url":"/m/dcm/lib_templates",
+        "items": [
+            { "standard_action": "add" },
+            { "standard_action": "update" },
+            { "standard_action": "remove" },
+            { "standard_action": "get" },
+            { "standard_action": "query" }
+        ]
+    },
+    {
+        "nservice": "LibService",
+        "base_url":"/m/dcm/libs",
+        "items": [
+            { "standard_action": "add" },
+            { "standard_action": "update" },
+            { "standard_action": "remove" },
+            { "standard_action": "get" },
+            { "standard_action": "query" }
+        ]
+    },
+    {
+        "nservice": "ContentTypeService",
+        "base_url":"/m/dcm/content_types",
+        "items": [
+            { "standard_action": "add" },
+            { "standard_action": "update" },
+            { "standard_action": "remove" },
+            { "standard_action": "get" },
+            { "standard_action": "query" }
+        ]
+    },
+    {
+        "nservice": "ContentService",
+        "base_url":"/m/dcm/libs/:lib_id/contents",
+        "items": [
+            {
+                "function": "add_content",
+                "method": "POST",
+                "url": "",
+                "params": [{ "fromway": "body", "code": "" }]
+            },
+            { "standard_action": "remove" },
+            { "standard_action": "get" },
+            { "standard_action": "query" }
+        ]
+    }
+]

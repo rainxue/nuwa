@@ -1,0 +1,165 @@
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { accessTokenService } from '../access_token_service';
+
+/**
+ * 简化的 JWT Token 验证中间件
+ * 根据用户建议，保持简单实用
+ */
+
+// 通用认证中间件
+export function authenticateUser(checkRevocation: boolean = false) {
+    return async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const authHeader = request.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return reply.status(401).send({ error: 'Missing or invalid authorization header' });
+            }
+
+            const token = authHeader.substring(7);
+            
+            // 使用统一的验证方法，可选撤销检查
+            const decoded = await accessTokenService.verifyAccessToken(token, checkRevocation);
+            if (!decoded) {
+                return reply.status(401).send({ 
+                    error: checkRevocation ? 'Token invalid, expired, or revoked' : 'Token invalid or expired'
+                });
+            }
+
+            // 将用户信息添加到请求对象
+            request.user = { userId: decoded.payload.user_id };
+        } catch (error) {
+            return reply.status(401).send({ error: 'Token verification failed' });
+        }
+    };
+}
+
+/**
+ * 路由注册示例
+ */
+export async function registerSimplifiedAuthRoutes(app: FastifyInstance) {
+    
+    // 公开API - 不检查撤销（性能优先）
+    app.register(async function(fastify) {
+        fastify.addHook('preHandler', authenticateUser(false));
+        
+        fastify.get('/api/user/profile', async (request, reply) => {
+            return { 
+                message: 'User profile',
+                userId: request.user?.userId,
+                verification: 'stateless'
+            };
+        });
+
+        fastify.get('/api/articles', async (request, reply) => {
+            return { 
+                message: 'Articles list',
+                verification: 'stateless'
+            };
+        });
+    });
+
+    // 敏感操作 - 检查撤销（安全优先）
+    app.register(async function(fastify) {
+        fastify.addHook('preHandler', authenticateUser(true));
+        
+        fastify.post('/api/user/change-password', async (request, reply) => {
+            return { 
+                message: 'Password changed',
+                userId: request.user?.userId,
+                verification: 'with-revocation-check'
+            };
+        });
+
+        fastify.post('/api/transfer', async (request, reply) => {
+            return { 
+                message: 'Transfer initiated',
+                userId: request.user?.userId,
+                verification: 'with-revocation-check'
+            };
+        });
+    });
+
+    // 登出操作
+    app.post('/api/auth/logout', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const authHeader = request.headers.authorization;
+            if (!authHeader || !authHeader.startsWith('Bearer ')) {
+                return reply.status(401).send({ error: 'Missing authorization header' });
+            }
+
+            const token = authHeader.substring(7);
+            
+            // 撤销当前Token
+            const success = await accessTokenService.revokeToken(token);
+            
+            return { 
+                message: success ? 'Logged out successfully' : 'Logout failed',
+                revoked: success 
+            };
+        } catch (error) {
+            return reply.status(500).send({ error: 'Logout failed' });
+        }
+    });
+}
+
+/**
+ * 简化的使用指南
+ */
+export const UsageGuide = {
+    // 大多数API：默认不检查撤销
+    publicAPI: () => authenticateUser(false),
+    
+    // 敏感操作：检查撤销状态
+    sensitiveAPI: () => authenticateUser(true),
+    
+    // 直接调用示例
+    examples: {
+        // 在路由处理器中直接验证
+        async directVerification(token: string) {
+            // 普通验证
+            const result1 = await accessTokenService.verifyAccessToken(token);
+            
+            // 带撤销检查的验证
+            const result2 = await accessTokenService.verifyAccessToken(token, true);
+            
+            return { normal: result1, withRevocation: result2 };
+        },
+        
+        // 使用便捷方法
+        async convenientMethods(token: string) {
+            const publicResult = await accessTokenService.verifyPublicAPI(token);
+            const sensitiveResult = await accessTokenService.verifySensitiveAPI(token);
+            
+            return { public: publicResult, sensitive: sensitiveResult };
+        }
+    }
+};
+
+// 扩展 FastifyRequest 类型
+declare module 'fastify' {
+    interface FastifyRequest {
+        user?: {
+            userId: string;
+        };
+    }
+}
+
+/**
+ * 总结：
+ * 
+ * 1. 统一验证方法：verifyAccessToken(token, checkRevocation)
+ *    - checkRevocation = false: 纯无状态验证（默认）
+ *    - checkRevocation = true:  带撤销检查
+ * 
+ * 2. 中间件选择：
+ *    - authenticateUser(false): 公开API
+ *    - authenticateUser(true):  敏感操作
+ * 
+ * 3. 性能特点：
+ *    - 无撤销检查：只解析JWT，0次Redis查询
+ *    - 有撤销检查：解析JWT + 1次Redis查询
+ * 
+ * 4. 适用场景：
+ *    - Token TTL只有几小时，大多数情况用无状态验证即可
+ *    - 只在真正需要立即撤销的场景才检查撤销状态
+ */

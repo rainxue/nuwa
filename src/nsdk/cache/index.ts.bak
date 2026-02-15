@@ -1,0 +1,348 @@
+'use strict';
+import { channel } from 'diagnostics_channel';
+
+import { LRUCache } from 'lru-cache';
+
+/**
+ * 简单的本地缓存封装，基于 LRUCache
+ */
+export class LocalCache<K extends {}, V extends {}> {
+    private cache: LRUCache<K, V>;
+
+    constructor(options?: {
+        max?: number;
+        ttl?: number;
+        maxSize?: number;
+        maxAge?: number;
+    }) {
+        this.cache = new LRUCache({
+            max: options?.max || 1000,
+            ttl: options?.ttl || options?.maxAge,
+            maxSize: options?.maxSize,
+            ...options
+        });
+    }
+
+    get(key: K): V | undefined {
+        return this.cache.get(key);
+    }
+
+    set(key: K, value: V, options?: { ttl?: number }): this {
+        this.cache.set(key, value, options);
+        return this;
+    }
+
+    has(key: K): boolean {
+        return this.cache.has(key);
+    }
+
+    delete(key: K): boolean {
+        return this.cache.delete(key);
+    }
+
+    clear(): void {
+        this.cache.clear();
+    }
+
+    size(): number {
+        return this.cache.size;
+    }
+
+    keys(): IterableIterator<K> {
+        return this.cache.keys();
+    }
+
+    values(): IterableIterator<V> {
+        return this.cache.values();
+    }
+
+    entries(): IterableIterator<[K, V]> {
+        return this.cache.entries();
+    }
+
+    // 获取缓存统计信息
+    info() {
+        return {
+            size: this.cache.size,
+            max: this.cache.max,
+            ttl: this.cache.ttl,
+            calculatedSize: this.cache.calculatedSize
+        };
+    }
+}
+
+// 创建一个简单的字符串键值缓存
+export class SimpleCache extends LocalCache<string, any> {
+    constructor(options?: {
+        max?: number;
+        ttl?: number;
+        maxSize?: number;
+    }) {
+        super(options);
+    }
+
+    // 添加一些便利方法
+    getString(key: string): string | undefined {
+        return this.get(key);
+    }
+
+    setString(key: string, value: string, ttl?: number): this {
+        return this.set(key, value, { ttl });
+    }
+
+    getNumber(key: string): number | undefined {
+        return this.get(key);
+    }
+
+    setNumber(key: string, value: number, ttl?: number): this {
+        return this.set(key, value, { ttl });
+    }
+
+    getObject<T = any>(key: string): T | undefined {
+        return this.get(key);
+    }
+
+    setObject<T = any>(key: string, value: T, ttl?: number): this {
+        return this.set(key, value, { ttl });
+    }
+}
+
+// 导出一个默认的简单缓存实例
+export const defaultCache = new SimpleCache({
+    max: 1000,
+    ttl: 5 * 60 * 1000 // 5分钟TTL
+});
+
+
+
+
+/**
+ * 简单的 Redis 缓存封装
+ */
+export class RedisCache {
+    private client: any = null;
+    private connected = false;
+    private connecting = false;
+
+    constructor(private options?: {
+        host?: string;
+        port?: number;
+        password?: string;
+        db?: number;
+        keyPrefix?: string;
+    }) {
+        this.options = {
+            host: 'localhost',
+            port: 6379,
+            db: 0,
+            keyPrefix: '',
+            ...options
+        };
+    }
+
+    private async connect(): Promise<boolean> {
+        if (this.connected) return true;
+        if (this.connecting) {
+            // 等待连接完成
+            while (this.connecting) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            return this.connected;
+        }
+
+        this.connecting = true;
+        try {
+            const { createClient } = await import('redis');
+            this.client = createClient({
+                socket: {
+                    host: this.options?.host,
+                    port: this.options?.port
+                },
+                password: this.options?.password,
+                database: this.options?.db
+            });
+
+            await this.client.connect();
+            this.connected = true;
+            console.log('Redis connected successfully');
+            return true;
+        } catch (error) {
+            console.error('Redis connection failed:', error);
+            this.connected = false;
+            return false;
+        } finally {
+            this.connecting = false;
+        }
+    }
+
+    private getKey(key: string): string {
+        return this.options?.keyPrefix ? `${this.options.keyPrefix}:${key}` : key;
+    }
+
+    async get(key: string): Promise<any> {
+        if (!await this.connect()) return undefined;
+
+        try {
+            const result = await this.client.get(this.getKey(key));
+            if (result === null) return undefined;
+            
+            try {
+                return JSON.parse(result);
+            } catch {
+                return result; // 返回原始字符串
+            }
+        } catch (error) {
+            console.error('Redis get error:', error);
+            return undefined;
+        }
+    }
+
+    async set(key: string, value: any, ttlSeconds?: number): Promise<boolean> {
+        if (!await this.connect()) return false;
+
+        try {
+            const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+            const redisKey = this.getKey(key);
+
+            if (ttlSeconds && ttlSeconds > 0) {
+                await this.client.setEx(redisKey, ttlSeconds, serialized);
+            } else {
+                await this.client.set(redisKey, serialized);
+            }
+            return true;
+        } catch (error) {
+            console.error('Redis set error:', error);
+            return false;
+        }
+    }
+
+    async has(key: string): Promise<boolean> {
+        if (!await this.connect()) return false;
+
+        try {
+            const result = await this.client.exists(this.getKey(key));
+            return result > 0;
+        } catch (error) {
+            console.error('Redis has error:', error);
+            return false;
+        }
+    }
+
+    async delete(key: string): Promise<boolean> {
+        if (!await this.connect()) return false;
+
+        try {
+            const result = await this.client.del(this.getKey(key));
+            return result > 0;
+        } catch (error) {
+            console.error('Redis delete error:', error);
+            return false;
+        }
+    }
+
+    async clear(): Promise<void> {
+        if (!await this.connect()) return;
+
+        try {
+            if (this.options?.keyPrefix) {
+                // 只删除有前缀的键
+                const keys = await this.client.keys(`${this.options.keyPrefix}:*`);
+                if (keys.length > 0) {
+                    await this.client.del(keys);
+                }
+            } else {
+                // 清空当前数据库
+                await this.client.flushDb();
+            }
+        } catch (error) {
+            console.error('Redis clear error:', error);
+        }
+    }
+
+    async ttl(key: string): Promise<number> {
+        if (!await this.connect()) return -1;
+
+        try {
+            return await this.client.ttl(this.getKey(key));
+        } catch (error) {
+            console.error('Redis ttl error:', error);
+            return -1;
+        }
+    }
+
+    async expire(key: string, ttlSeconds: number): Promise<boolean> {
+        if (!await this.connect()) return false;
+
+        try {
+            const result = await this.client.expire(this.getKey(key), ttlSeconds);
+            return result === 1;
+        } catch (error) {
+            console.error('Redis expire error:', error);
+            return false;
+        }
+    }
+
+    // 便利方法
+    async getString(key: string): Promise<string | undefined> {
+        return await this.get(key);
+    }
+
+    async setString(key: string, value: string, ttlSeconds?: number): Promise<boolean> {
+        return await this.set(key, value, ttlSeconds);
+    }
+
+    async getNumber(key: string): Promise<number | undefined> {
+        const value = await this.get(key);
+        return typeof value === 'number' ? value : undefined;
+    }
+
+    async setNumber(key: string, value: number, ttlSeconds?: number): Promise<boolean> {
+        return await this.set(key, value, ttlSeconds);
+    }
+
+    async getObject<T = any>(key: string): Promise<T | undefined> {
+        return await this.get(key);
+    }
+
+    async setObject<T = any>(key: string, value: T, ttlSeconds?: number): Promise<boolean> {
+        return await this.set(key, value, ttlSeconds);
+    }
+
+    async disconnect(): Promise<void> {
+        if (this.client && this.connected) {
+            try {
+                await this.client.disconnect();
+                this.connected = false;
+                console.log('Redis disconnected');
+            } catch (error) {
+                console.error('Redis disconnect error:', error);
+            }
+        }
+    }
+
+    // 获取连接状态
+    isConnected(): boolean {
+        return this.connected;
+    }
+
+    // 获取统计信息
+    async info(): Promise<any> {
+        if (!await this.connect()) return null;
+
+        try {
+            const info = await this.client.info('memory');
+            return {
+                connected: this.connected,
+                keyPrefix: this.options?.keyPrefix || '',
+                info: info
+            };
+        } catch (error) {
+            console.error('Redis info error:', error);
+            return { connected: this.connected };
+        }
+    }
+}
+
+// 创建一个默认的 Redis 缓存实例
+export const defaultRedisCache = new RedisCache();
+

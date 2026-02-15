@@ -1,0 +1,81 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug TypeScript",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/index.ts",
+            "runtimeArgs": [
+                "-r",
+                "ts-node/register",
+                "-r",
+                "dotenv/config",
+                "-r",
+                "tsconfig-paths/register"
+            ],
+            "sourceMaps": true,
+            "env": {
+                "NODE_ENV": "development",
+                "TS_NODE_PROJECT": "${workspaceFolder}/tsconfig.json"
+            },
+            "console": "integratedTerminal",
+            "restart": true
+        },
+        {
+            "name": "Debug with ts-node",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/index.ts",
+            "runtimeArgs": [
+                "-r",
+                "ts-node/register",
+                "-r",
+                "dotenv/config",
+                "-r",
+                "tsconfig-paths/register"
+            ],
+            "sourceMaps": true,
+            "env": {
+                "NODE_ENV": "development",
+                "TS_NODE_PROJECT": "${workspaceFolder}/tsconfig.json"
+            },
+            "console": "integratedTerminal",
+            "restart": true
+        },
+        {
+            "name": "Debug with ts-node-dev",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/node_modules/.bin/ts-node-dev",
+            "args": [
+                "-r",
+                "dotenv/config",
+                "-r",
+                "tsconfig-paths/register",
+                "--inspect",
+                "src/index.ts"
+            ],
+            "sourceMaps": true,
+            "env": {
+                "NODE_ENV": "development"
+            },
+            "console": "integratedTerminal",
+            "restart": true
+        },
+        {
+            "name": "Debug Current File",
+            "type": "node",
+            "request": "launch",
+            "program": "${file}",
+            "runtimeArgs": [
+                "-r",
+                "ts-node/register",
+                "-r",
+                "dotenv/config"
+            ],
+            "sourceMaps": true,
+            "console": "integratedTerminal"
+        }
+    ]
+}

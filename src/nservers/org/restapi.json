@@ -1,0 +1,34 @@
+[
+    {
+        "nservice": "AreaManager",
+        "base_url":"/m/org/areas",
+        "items": [
+            {"standard_action": "add"},
+            {"standard_action": "get"},
+            {"standard_action": "update"},
+            {"standard_action": "remove"},
+            {"standard_action": "query"}
+        ]
+    },
+    {
+        "nservice": "OrgManager",
+        "base_url":"/m/org/orgs",
+        "items": [
+            {"standard_action": "add"},
+            {"standard_action": "get"},
+            {"standard_action": "update"},
+            {"standard_action": "remove"},
+            {"standard_action": "query"},
+            {
+                "standard_action": "filter",
+                "filter_name": "filterOrgs",
+                "data": { "conditions":{}}
+            },
+            {
+                "standard_action": "action",
+                "action_name": "enable",
+                "data": { "status":"enable" }
+            }
+        ]
+    }
+]

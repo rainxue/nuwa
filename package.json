@@ -1,0 +1,44 @@
+{
+  "name": "nuwa",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node -r dotenv/config dist/index.js",
+    "dev": "ts-node-dev -r dotenv/config -r tsconfig-paths/register src/index.ts",
+    "test": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:watch": "vitest watch",
+    "test:coverage": "vitest run --coverage",
+    "verify-db": "node tests/verify-db.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@types/bcrypt": "^6.0.0",
+    "@types/minio": "^7.1.0",
+    "axios": "^1.11.0",
+    "bcrypt": "^6.0.0",
+    "canvas": "^3.2.0",
+    "dotenv": "^17.2.1",
+    "fastify": "^5.4.0",
+    "fastify-plugin": "^5.0.1",
+    "lru-cache": "^11.1.0",
+    "minio": "^8.0.5",
+    "mysql2": "^3.14.3",
+    "redis": "^5.8.2",
+    "reflect-metadata": "^0.2.2",
+    "uuid": "^11.1.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/node": "^20.19.9",
+    "@vitest/ui": "^3.2.4",
+    "pino-pretty": "^11.0.0",
+    "ts-node-dev": "^2.0.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

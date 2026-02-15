@@ -1,0 +1,461 @@
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { accessTokenService, TokenPayload, AccessTokenService } from './access_token_service';
+import { accountService } from './account_service';
+
+/**
+ * Access Token 相关的路由和中间件
+ */
+
+/**
+ * 登录请求接口
+ */
+interface LoginRequest {
+    identifier: string;  // 登录标识（邮箱、手机号或登录名）
+    password: string;    // 密码
+}
+
+/**
+ * 刷新令牌请求接口
+ */
+interface RefreshTokenRequest {
+    refreshToken: string;
+}
+
+/**
+ * 注册 Access Token 相关路由
+ */
+export async function registerAccessTokenRoutes(fastify: FastifyInstance) {
+    
+    // 1. 用户登录接口
+    fastify.post('/auth/login', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const { identifier, password } = request.body as LoginRequest;
+            
+            if (!identifier || !password) {
+                return reply.code(400).send({
+                    success: false,
+                    message: 'identifier and password are required'
+                });
+            }
+
+            // 验证用户凭据
+            const user = await accountService.login(identifier, password);
+            if (!user) {
+                return reply.code(401).send({
+                    success: false,
+                    message: 'Invalid credentials'
+                });
+            }
+
+            // 生成 Access Token
+            const tokenPayload: TokenPayload = {
+                userId: user.id.toString()
+            };
+
+            const tokenInfo = await accessTokenService.generateTokens(tokenPayload);
+
+            return reply.send({
+                success: true,
+                data: {
+                    message: 'Login successful',
+                    user: {
+                        id: user.id,
+                        username: user.username,
+                        email_masked: user.email_masked,
+                        phone_masked: user.phone_masked,
+                        avatar: user.avatar,
+                        status: user.status
+                    },
+                    token: tokenInfo
+                }
+            });
+            
+        } catch (error) {
+            console.error('Login error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Login failed'
+            });
+        }
+    });
+
+    // 2. 刷新令牌接口
+    fastify.post('/auth/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const { refreshToken } = request.body as RefreshTokenRequest;
+            
+            if (!refreshToken) {
+                return reply.code(400).send({
+                    success: false,
+                    message: 'refreshToken is required'
+                });
+            }
+
+            const newTokenInfo = await accessTokenService.refreshAccessToken(refreshToken);
+            
+            if (!newTokenInfo) {
+                return reply.code(401).send({
+                    success: false,
+                    message: 'Invalid or expired refresh token'
+                });
+            }
+
+            return reply.send({
+                success: true,
+                data: {
+                    message: 'Token refreshed successfully',
+                    token: newTokenInfo
+                }
+            });
+            
+        } catch (error) {
+            console.error('Token refresh error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Token refresh failed'
+            });
+        }
+    });
+
+    // 3. 撤销令牌接口（登出）
+    fastify.post('/auth/logout', { preHandler: [authMiddleware] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const token = extractTokenFromHeader(request);
+            if (!token) {
+                return reply.code(400).send({
+                    success: false,
+                    message: 'No token provided'
+                });
+            }
+
+            const success = await accessTokenService.revokeToken(token);
+            
+            return reply.send({
+                success: true,
+                data: {
+                    message: success ? 'Logout successful' : 'Token already revoked'
+                }
+            });
+            
+        } catch (error) {
+            console.error('Logout error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Logout failed'
+            });
+        }
+    });
+
+    // 4. 撤销用户所有令牌接口
+    fastify.post('/auth/logout-all', { preHandler: [authMiddleware] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const userInfo = (request as any).user;
+            
+            const revokedCount = await accessTokenService.revokeUserTokens(userInfo.userId);
+            
+            return reply.send({
+                success: true,
+                data: {
+                    message: 'All tokens revoked successfully',
+                    revokedCount: revokedCount
+                }
+            });
+            
+        } catch (error) {
+            console.error('Logout all error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Logout all failed'
+            });
+        }
+    });
+
+    // 5. 获取用户活跃令牌列表
+    fastify.get('/auth/tokens', { preHandler: [authMiddleware] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const userInfo = (request as any).user;
+            
+            const activeTokens = await accessTokenService.getUserActiveTokens(userInfo.userId);
+            
+            return reply.send({
+                success: true,
+                data: {
+                    tokens: activeTokens,
+                    count: activeTokens.length
+                }
+            });
+            
+        } catch (error) {
+            console.error('Get tokens error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Failed to get tokens'
+            });
+        }
+    });
+
+    // 6. 验证令牌接口（用于测试）
+    fastify.get('/auth/verify', { preHandler: [authMiddleware] }, async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const userInfo = (request as any).user;
+            
+            return reply.send({
+                success: true,
+                data: {
+                    message: 'Token is valid',
+                    user: userInfo
+                }
+            });
+            
+        } catch (error) {
+            console.error('Token verify error:', error);
+            return reply.code(500).send({
+                success: false,
+                message: 'Token verification failed'
+            });
+        }
+    });
+
+    // 7. 健康检查接口
+    fastify.get('/auth/health', async (request: FastifyRequest, reply: FastifyReply) => {
+        try {
+            const health = await accessTokenService.healthCheck();
+            
+            const statusCode = health.status === 'healthy' ? 200 : 503;
+            
+            return reply.code(statusCode).send({
+                success: health.status === 'healthy',
+                data: health
+            });
+            
+        } catch (error) {
+            console.error('Health check error:', error);
+            return reply.code(503).send({
+                success: false,
+                message: 'Health check failed'
+            });
+        }
+    });
+}
+
+/**
+ * 认证中间件
+ * 验证 Access Token 并将用户信息添加到请求上下文
+ */
+export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const token = extractTokenFromHeader(request);
+        
+        if (!token) {
+            return reply.code(401).send({
+                success: false,
+                message: 'Access token is required'
+            });
+        }
+
+        const parsedToken = await accessTokenService.verifyAccessToken(token);
+        
+        if (!parsedToken) {
+            return reply.code(401).send({
+                success: false,
+                message: 'Invalid or expired access token'
+            });
+        }
+
+        // 将用户信息添加到请求上下文
+        (request as any).user = {
+            userId: parsedToken.payload.userId,
+            tokenId: parsedToken.jti,
+            iat: parsedToken.iat,
+            exp: parsedToken.exp
+        };
+
+    } catch (error) {
+        console.error('Auth middleware error:', error);
+        return reply.code(500).send({
+            success: false,
+            message: 'Authentication failed'
+        });
+    }
+}
+
+/**
+ * 可选认证中间件
+ * 如果有 Token 则验证，没有则继续（用于可选登录的接口）
+ */
+export async function optionalAuthMiddleware(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const token = extractTokenFromHeader(request);
+        
+        if (token) {
+            const parsedToken = await accessTokenService.verifyAccessToken(token);
+            
+            if (parsedToken) {
+                (request as any).user = {
+                    userId: parsedToken.payload.userId,
+                    tokenId: parsedToken.jti,
+                    iat: parsedToken.iat,
+                    exp: parsedToken.exp
+                };
+            }
+        }
+
+        // 无论是否有有效 Token 都继续执行
+    } catch (error) {
+        // 可选认证失败不影响请求继续
+        console.error('Optional auth middleware error:', error);
+    }
+}
+
+/**
+ * 管理员权限中间件
+ * 检查用户是否有管理员权限（示例实现）
+ */
+export async function adminMiddleware(request: FastifyRequest, reply: FastifyReply) {
+    try {
+        const userInfo = (request as any).user;
+        
+        if (!userInfo) {
+            return reply.code(401).send({
+                success: false,
+                message: 'Authentication required'
+            });
+        }
+
+        // 获取用户详细信息检查权限
+        const user = await accountService.get(userInfo.userId);
+        
+        if (!user) {
+            return reply.code(401).send({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // 这里可以根据实际需求检查用户角色或权限
+        // 示例：检查用户名是否为admin或特定角色
+        if (user.login_name !== 'admin') {
+            return reply.code(403).send({
+                success: false,
+                message: 'Admin access required'
+            });
+        }
+
+        // 将用户详细信息添加到上下文
+        (request as any).userDetail = user;
+
+    } catch (error) {
+        console.error('Admin middleware error:', error);
+        return reply.code(500).send({
+            success: false,
+            message: 'Permission check failed'
+        });
+    }
+}
+
+/**
+ * 从请求头中提取 Token
+ */
+function extractTokenFromHeader(request: FastifyRequest): string | null {
+    const authorization = request.headers.authorization;
+    
+    if (!authorization) {
+        return null;
+    }
+
+    const parts = authorization.split(' ');
+    
+    if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        return null;
+    }
+
+    return parts[1];
+}
+
+/**
+ * 初始化 Access Token 服务配置
+ */
+export function initializeAccessTokenService(config?: {
+    secretKey?: string;
+    accessTokenTTL?: number;
+    refreshTokenTTL?: number;
+}) {
+    if (config) {
+        accessTokenService.updateConfig(config);
+    }
+    
+    console.log('Access Token Service initialized with config:', accessTokenService.getConfig());
+}
+
+/**
+ * 使用示例类
+ */
+export class AccessTokenExample {
+    
+    /**
+     * 演示完整的登录流程
+     */
+    static async demoLogin() {
+        try {
+            console.log('=== Access Token Service Demo ===');
+            
+            // 1. 模拟登录
+            const loginData = {
+                identifier: 'admin',
+                password: 'admin123'
+            };
+
+            console.log('1. 模拟登录...');
+            const user = await accountService.login(loginData.identifier, loginData.password);
+            
+            if (!user) {
+                console.log('登录失败：用户名或密码错误');
+                return;
+            }
+
+            // 2. 生成 Token
+            console.log('2. 生成 Access Token...');
+            const tokenPayload: TokenPayload = {
+                userId: user.id.toString()
+            };
+
+            const tokenInfo = await accessTokenService.generateTokens(tokenPayload);
+            console.log('Token 生成成功:', {
+                tokenType: tokenInfo.tokenType,
+                expiresIn: tokenInfo.expiresIn,
+                expiresAt: new Date(tokenInfo.expiresAt)
+            });
+
+            // 3. 验证 Token
+            console.log('3. 验证 Access Token...');
+            const parsedToken = await accessTokenService.verifyAccessToken(tokenInfo.accessToken);
+            
+            if (parsedToken) {
+                console.log('Token 验证成功:', {
+                    userId: parsedToken.payload.userId,
+                    发行时间: new Date(parsedToken.iat * 1000),
+                    过期时间: new Date(parsedToken.exp * 1000)
+                });
+            }
+
+            // 4. 刷新 Token
+            console.log('4. 刷新 Access Token...');
+            const newTokenInfo = await accessTokenService.refreshAccessToken(tokenInfo.refreshToken);
+            
+            if (newTokenInfo) {
+                console.log('Token 刷新成功');
+            }
+
+            // 5. 撤销 Token
+            console.log('5. 撤销 Access Token...');
+            const revokeSuccess = await accessTokenService.revokeToken(tokenInfo.accessToken);
+            console.log('Token 撤销结果:', revokeSuccess);
+
+            console.log('=== Demo 完成 ===');
+            
+        } catch (error) {
+            console.error('Demo 执行失败:', error);
+        }
+    }
+}
+
